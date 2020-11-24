@@ -1,5 +1,8 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 import os
+import numpy as np
+from qimage2ndarray import recarray_view
+from psnr import calculate_psnr
 
 
 class Ui_MainWindow(object):
@@ -16,9 +19,10 @@ class Ui_MainWindow(object):
         self.image_layout.setObjectName("image layout")
         self.gridLayout.addLayout(self.image_layout, 0, 0)
 
-        table_label = QtWidgets.QLabel(self.centralwidget)
-        table_label.setText("Тут таблица mse, psnr")
-        self.gridLayout.addWidget(table_label, 0, 1)
+        self.psnr_table = QtWidgets.QTableWidget(5, 2)
+        self.set_default_psnr_table_values()
+        self.resize_psnr_table()
+        self.gridLayout.addWidget(self.psnr_table, 0, 1)
 
         self.statusbar = QtWidgets.QStatusBar(MainWindow)
         self.statusbar.setObjectName("statusbar")
@@ -40,6 +44,10 @@ class Ui_MainWindow(object):
         save_image_btn2 = QtWidgets.QPushButton("Сохранить изображение")
         save_image_btn2.clicked.connect(lambda: self.handle_save_image())
         self.image_layout.addWidget(save_image_btn2, 4, 1)
+
+        calculate_psnr_btn = QtWidgets.QPushButton("Посчитать PSNR")
+        calculate_psnr_btn.clicked.connect(self.calculate_psnr)
+        self.image_layout.addWidget(calculate_psnr_btn, 5, 1)
 
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
@@ -84,9 +92,8 @@ class Ui_MainWindow(object):
         self.load_image_by_filename(fname, image, pixmap, label, column_num)
 
     def load_image_by_filename(self, filename, image, pixmap, label, column_num):
-        image = QtGui.QImage(filename)
-        pixmap = QtGui.QPixmap(image)
-        label.setPixmap(pixmap)
+        image.load(filename)
+        label.setPixmap(QtGui.QPixmap.fromImage(image))
         self.image_layout.addWidget(label, 0, column_num)
 
     def handle_save_image(self):
@@ -96,6 +103,63 @@ class Ui_MainWindow(object):
     def handle_change_selected_file(self, selected_file, image, pixmap, label, column_number):
         filename = 'test-images/{}'.format(selected_file)
         self.load_image_by_filename(filename, image, pixmap, label, column_number)
+
+    def calculate_psnr(self):
+        format1 = self.image1.format()
+        format2 = self.image2.format()
+
+        if format1 != format2:
+            self.statusbar.showMessage('Нельзя вычислить psnr: разные цветовые форматы у изображений', msecs=5000)
+            return
+
+        height1 = self.image1.height()
+        width1 = self.image1.width()
+
+        height2 = self.image2.height()
+        width2 = self.image2.width()
+
+        if height1 != height2 or width1 != width2:
+            self.statusbar.showMessage('Нельзя вычислить psnr: разные размеры у изображений', msecs=5000)
+            return
+
+        ptr1 = self.image1.bits()
+        ptr1.setsize(height1 * width1 * 4)
+        arr1 = np.frombuffer(ptr1, np.uint8).reshape((height1, width1, 4))
+
+        ptr2 = self.image2.bits()
+        ptr2.setsize(height1 * width2 * 4)
+        arr2 = np.frombuffer(ptr2, np.uint8).reshape((height2, width2, 4))
+
+        psnr, psnr_red, psnr_green, psnr_blue = calculate_psnr(arr1, arr2)
+        self.set_psnr_table_values(psnr, psnr_red, psnr_green, psnr_blue)
+
+    def set_default_psnr_table_values(self):
+        self.psnr_table.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.psnr_table.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.psnr_table.setItem(0, 1, QtWidgets.QTableWidgetItem("PSNR"))
+        self.psnr_table.setItem(1, 0, QtWidgets.QTableWidgetItem("Red"))
+        self.psnr_table.setItem(2, 0, QtWidgets.QTableWidgetItem("Green"))
+        self.psnr_table.setItem(3, 0, QtWidgets.QTableWidgetItem("Blue"))
+        self.psnr_table.setItem(4, 0, QtWidgets.QTableWidgetItem("Full"))
+        for i in range(1, 5):
+            self.psnr_table.setItem(i, 1, QtWidgets.QTableWidgetItem("0"))
+
+    def set_psnr_table_values(self, psnr, psnr_red, psnr_green, psnr_blue):
+        values = [psnr_red, psnr_green, psnr_blue, psnr]
+        for i in range(1, 5):
+            self.psnr_table.setItem(i, 1, QtWidgets.QTableWidgetItem(str(values[i-1])))
+        self.resize_psnr_table()
+
+    def resize_psnr_table(self):
+        self.psnr_table.resizeColumnsToContents()
+        w = self.psnr_table.verticalHeader().width()
+        h = self.psnr_table.horizontalHeader().height()
+        for i in range(self.psnr_table.columnCount()):
+            w += self.psnr_table.columnWidth(i)
+        for i in range(self.psnr_table.rowCount()):
+            h += self.psnr_table.rowHeight(i)
+        self.psnr_table.setMinimumSize(w, h)
+        self.psnr_table.setMaximumSize(w, h)
 
 
 if __name__ == "__main__":
